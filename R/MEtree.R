@@ -16,15 +16,12 @@ MEtree5<-function(data,formula,random) {
   iterations<-0
   #set up the initial target
   OriginalTarget<-(Target)
+  TargetLevels<-levels(OriginalTarget)
   oldDIC<- Inf
 
   # Make a new data frame to include all the new variables
   newdata <- data
-  newdata[,"p.1"]<-0
-  newdata[,"p.2"]<-0
-  newdata[,"p.3"]<-0
-  newdata[,"p.4"]<-0
-  newdata[,"p.5"]<-0
+  newdata[,TargetLevels] <- 0
 
   m.list<-list()
   tree.list<-list()
@@ -56,20 +53,20 @@ MEtree5<-function(data,formula,random) {
 
     # Get variables (alternative-specific) that identify the node for
     # each observation
-    newdata["p.1"]<-list(predict(tree,newdata=newdata,type="prob")[,1])
-    newdata["p.2"]<-list(predict(tree,newdata=newdata,type="prob")[,2])
-    newdata["p.3"]<-list(predict(tree,newdata=newdata,type="prob")[,3])
-    newdata["p.4"]<-list(predict(tree,newdata=newdata,type="prob")[,4])
-    newdata["p.5"]<-list(predict(tree,newdata=newdata,type="prob")[,5])
+    predCHAID <- as.data.frame(predict(tree,newdata=newdata,type="prob"))
+
+    for (i in TargetLevels) {
+      newdata[,TargetLevels] <- predCHAID[,TargetLevels]
+    }
 
     CHAIDTarget<-c()
     # Update adjusted target based on CHAID predicted probs.
     repeat{
       for(k in 1:length(OriginalTarget)){
-        t<-levels(OriginalTarget)
+        t<-TargetLevels
         # Draw a decision based on probs
         CHAIDTarget[k]<-sample(t,1,replace=FALSE,
-                               prob=newdata[k,c("p.1","p.2","p.3","p.4","p.5")])
+                               prob=newdata[k,TargetLevels])
       }
       if ((length(table(OriginalTarget))==5)){break}
     }
@@ -77,7 +74,7 @@ MEtree5<-function(data,formula,random) {
     newdata[,"CHAIDTarget"] <- as.factor(CHAIDTarget)
 
     # Fit MCMCglmm
-    k <- length(levels(Target))
+    k <- length(TargetLevels)
     I <- diag(k-1)
     J <- matrix(rep(1, (k-1)^2), c(k-1, k-1))
 
@@ -85,7 +82,7 @@ MEtree5<-function(data,formula,random) {
       G = list(G1 = list(V = diag(k-1), n = k-1)),
       R = list(fix=1,V= (1/k) * (I + J), n = k-1))
 
-    m <- MCMCglmm(fixed = OriginalTarget ~ -1 + trait +
+    m <- MCMCglmm(fixed = OriginalTarget ~ -1 + trait
                     +trait:(nodeInd+CHAIDTarget),
 
                   random = ~ idh(trait):HHID,# ~ idh(trait-1+nodeInd):ind.id ??
@@ -122,6 +119,7 @@ MEtree5<-function(data,formula,random) {
     #p <- predict(m,type="terms", interval="none",
     #            posterior="mean",marginal=m$Random$formula)
 
+
     pred<-c()
 
     pred$b<-p[1:nrow(newdata)]
@@ -130,14 +128,19 @@ MEtree5<-function(data,formula,random) {
     pred$e<-p[(3*nrow(newdata)+1):(4*nrow(newdata))]
 
     pred<-as.data.frame(pred)
+    pred<-cbind(a = 0, pred)
 
-    pred$pa<-1/(1+exp(pred$b)+exp(pred$c)+exp(pred$d)+exp(pred$e))
-    pred$pb<-exp(pred$b)/(1+exp(pred$b)+exp(pred$c)+exp(pred$d)+exp(pred$e))
-    pred$pc<-exp(pred$c)/(1+exp(pred$b)+exp(pred$c)+exp(pred$d)+exp(pred$e))
-    pred$pd<-exp(pred$d)/(1+exp(pred$b)+exp(pred$c)+exp(pred$d)+exp(pred$e))
-    pred$pe<-exp(pred$e)/(1+exp(pred$b)+exp(pred$c)+exp(pred$d)+exp(pred$e))
+    colnames(pred)<-TargetLevels
 
-    pred<-pred[5:9]
+    predMCMC<-c()
+    predMCMC$a<-exp(pred[,1])/(1+exp(pred[,2])+exp(pred[,3])+exp(pred[,4])+exp(pred[,5]))
+    predMCMC$b<-exp(pred[,2])/(1+exp(pred[,2])+exp(pred[,3])+exp(pred[,4])+exp(pred[,5]))
+    predMCMC$c<-exp(pred[,3])/(1+exp(pred[,2])+exp(pred[,3])+exp(pred[,4])+exp(pred[,5]))
+    predMCMC$d<-exp(pred[,4])/(1+exp(pred[,2])+exp(pred[,3])+exp(pred[,4])+exp(pred[,5]))
+    predMCMC$e<-exp(pred[,5])/(1+exp(pred[,2])+exp(pred[,3])+exp(pred[,4])+exp(pred[,5]))
+
+    predMCMC<-as.data.frame(predMCMC)
+    colnames(predMCMC)<-TargetLevels
 
     # Get the DIC to check on convergence
     if(!(is.null(m))){
@@ -148,11 +151,9 @@ MEtree5<-function(data,formula,random) {
       print(paste("###### DIC : ", m$DIC, " ######"))
 
       # Update prob.
-      newdata["p.1"]<-pred[,1]
-      newdata["p.2"]<-pred[,2]
-      newdata["p.3"]<-pred[,3]
-      newdata["p.4"]<-pred[,4]
-      newdata["p.5"]<-pred[,5]
+      for (i in TargetLevels){
+        newdata[,TargetLevels] <- predMCMC[,TargetLevels]
+      }
 
       # # Update adjusted target based on logit prob.
       # for(k in 1:length(AdjustedTarget)){
@@ -167,9 +168,9 @@ MEtree5<-function(data,formula,random) {
 
       repeat{
         for(k in 1:length(OriginalTarget)){
-          t<-levels(OriginalTarget)
+          t<-TargetLevels
           MCMCTarget[k]<-sample(t,1,replace=FALSE,
-                                prob=newdata[k,c("p.1","p.2","p.3","p.4","p.5")])
+                                prob=newdata[k,TargetLevels])
         }
         if ((length(table(MCMCTarget))==5)){break}
       }
@@ -188,3 +189,4 @@ MEtree5<-function(data,formula,random) {
     n.iter=iterations
   ))
 }
+

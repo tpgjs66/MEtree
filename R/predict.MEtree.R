@@ -1,8 +1,17 @@
 
 
-predict.MEtree <- function(tree , MCMCglmm, newdata,formula, id=NULL, EstimateRandomEffects=TRUE,...){
+predict.MEtree <- function(tree , MCMCglmm, newdata, formula, id=NULL, EstimateRandomEffects=TRUE,...){
 
-  treePrediction <- predict.party(tree,newdata)
+  Predictors<-paste(attr(terms(formula),"term.labels"),collapse="+")
+  TargetName<-formula[[2]]
+  OriginalTarget<-newdata[,toString(TargetName)]
+
+  nodeInd <- predict.party(tree,newdata,type="node")
+  newdata$nodeInd<-as.factor(nodeInd)
+  CHAIDTarget <- predict(chaid,newdata,type="node")
+  newdata$CHAIDTarget<-as.factor(CHAIDTarget)
+
+  nodePrediction <- predict.MCMCglmm(MCMCglmm,newdata,type="terms")
 
   # If we aren't estimating random effects, we
   # just use the tree for prediction.
@@ -15,7 +24,7 @@ predict.MEtree <- function(tree , MCMCglmm, newdata,formula, id=NULL, EstimateRa
   }
   # Error-checking: the number of observations
   # in the dataset must match the sum of NumObs
-  if(length(newdata[,id]) != dim(newdata)[1]){
+  if(length(id) != dim(newdata)[1]){
     stop("number of observations in newdata does not match the length of the group identifiers")
   }
   ### Use the formula to get the target name
@@ -32,7 +41,7 @@ predict.MEtree <- function(tree , MCMCglmm, newdata,formula, id=NULL, EstimateRa
   uniqueID <- unique(id)
 
   # Get the random effects from the estimated MCMCglmm, in case there is overlap
-  estRE <- ranef(object, use = ("mean"))
+  estRE <- ranef.MCMCglmm(MCMCglmm, use = ("mean"))
 
   for(i in 1:length(uniqueID)){
     # Identify the new group in the data
